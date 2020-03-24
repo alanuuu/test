@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="http://wechatfe.github.io/vconsole/lib/vconsole.min.js?v=3.3.0"></script>
+    <!-- <script type="application/javascript">
+        function getIP(json) {
+          document.write("My public IP address is: ", json.ip);
+        }
+      </script>
+      <script type="application/javascript" src="https://api.ipify.org?format=jsonp&callback=getIP"></script> -->
+</head>
+
+<body>
+    <button id="btn">获取系统参数</button>
+    <div id="content"></div>
+</body>
+<script>
+    function getScreenResolution() {
+
+        let scr = window.screen;
+        let pixelRatio;
+
+        // if (os.android  && (browser.wx || browser.uc || !window.devicePixelRatio)) {
+        //     pixelRatio = 1;
+        // } else {
+        //     pixelRatio = window.devicePixelRatio;
+        // }
+        pixelRatio = window.devicePixelRatio || 1;
+
+
+
+        pixelRatio = Math.max(2, pixelRatio);
+
+        // 如果宽度大于1080,理论上不太可能是2倍像素
+        if (scr.width >= 1080) {
+            pixelRatio = 1;
+        }
+
+        let width = scr.width * pixelRatio;
+        let height = scr.height * pixelRatio;
+
+        //alert([pixelRatio, width, height].join(' x '));
+        // 计算出最相近的常见分辨率
+        // let similar = this.getSimilarResolution(width, height);
+
+        // // 如果与常用分辨率相差在5PX以内,直接取近似的常见分辨率
+        // if (similar[2] < 5 && similar[3] < 5) {
+        //     width = similar[0];
+        //     height = similar[1];
+        // }else{
+        //     width=parseInt(width)
+        //     height=parseInt(height)
+        // }
+        width = parseInt(width)
+        height = parseInt(height)
+
+        return { width: width, height: height, pixelRatio: pixelRatio };
+    }
+
+
+    var isWebRTCSupported = false;
+    ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection', 'RTCIceGatherer'].forEach(function (item) {
+        if (isWebRTCSupported) {
+            return;
+        }
+
+        if (item in window) {
+            isWebRTCSupported = true;
+        }
+    });
+
+    var regexIpv4Local = /^(192\.168\.|169\.254\.|10\.|172\.(1[6-9]|2\d|3[01]))/;
+    var regexIpv4 = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+    var regexIpv6 = /[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7}/;
+
+    function getIPs(callback, stream) {
+        if (typeof document === 'undefined' || typeof document.getElementById !== 'function') {
+            return;
+        }
+
+        var ipDuplicates = {};
+
+        var RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+
+        if (!RTCPeerConnection) {
+            var iframe = document.getElementById('iframe');
+            if (!iframe) {
+                return;
+            }
+            var win = iframe.contentWindow;
+            RTCPeerConnection = win.RTCPeerConnection || win.mozRTCPeerConnection || win.webkitRTCPeerConnection;
+        }
+
+        if (!RTCPeerConnection) {
+            return;
+        }
+        // {
+        //         urls: 'stun:stun.l.google.com:19302'
+        //     }
+        var servers = {
+            iceServers: []
+        };
+
+        var pc = new RTCPeerConnection(servers);
+
+        if (stream) {
+            if (pc.addStream) {
+                pc.addStream(stream);
+            } else if (pc.addTrack && stream.getTracks()[0]) {
+                pc.addTrack(stream.getTracks()[0], stream);
+            }
+        }
+
+        function handleCandidate(candidate) {
+            if (!candidate) {
+                callback(); // Pass nothing to tell that ICE-gathering-ended
+                return;
+            }
+
+            var match = regexIpv4.exec(candidate);
+            if (!match) {
+                callback();
+                return;
+            }
+            var ipAddress = match[1];
+            var isPublic = (candidate.match(regexIpv4Local)),
+                isIpv4 = true;
+            // debugger;
+            if (ipDuplicates[ipAddress] === undefined) {
+                callback(ipAddress, isPublic, isIpv4);
+            }
+
+            ipDuplicates[ipAddress] = true;
+        }
+
+        // listen for candidate events
+        pc.onicecandidate = function (event) {
+
+            if (event.candidate && event.candidate.candidate) {
+                // console.log(event.candidate.candidate);
+                handleCandidate(event.candidate.candidate);
+            } else {
+
+                handleCandidate(); // Pass nothing to tell that ICE-gathering-ended
+            }
+        };
+
+        // create data channel
+        if (!stream) {
+            try {
+                pc.createDataChannel('jmlink', {});
+            } catch (e) { }
+        }
+
+        // create an offer sdp
+        pc.createOffer().then(function (result) {
+            pc.setLocalDescription(result).then(afterCreateOffer);
+        });
+
+        function afterCreateOffer() {
+            var lines = pc.localDescription.sdp.split('\n');
+
+            lines.forEach(function (line) {
+                if (line && line.indexOf('a=candidate:') === 0) {
+                    handleCandidate(line);
+                }
+            });
+        }
+    }
+
+    function DetectLocalIPAddress(callback, stream) {
+        if (!isWebRTCSupported) {
+            console.log('webRTC is not supported')
+            callback();
+        }
+
+        var isPublic = true,
+            isIpv4 = true;
+        getIPs(function (ip) {
+
+            if (!ip) {
+                callback();
+            } else if (ip.match(regexIpv4Local)) {
+                isPublic = false;
+                callback(ip, isPublic, isIpv4);
+            } else if (ip.match(regexIpv6)) { //via https://ourcodeworld.com/articles/read/257/how-to-get-the-client-ip-address-with-javascript-only
+                isIpv4 = false;
+                callback(ip, isPublic, isIpv4);
+            } else {
+                callback(ip, isPublic, isIpv4);
+            }
+        }, stream);
+    }
+
+    var deviceMemory = navigator.deviceMemory || 0;
+    var dpi = window.devicePixelRatio || 1;
+    var s = getScreenResolution();
+    var vconsole = new VConsole();
+    const btn = document.getElementById('btn');
+    const content = document.getElementById('content');
+
+    btn.onclick = function () {
+        let localIP = '';
+        DetectLocalIPAddress(function (ip) {
+            // debugger;
+            if (ip) {
+                localIP = ip;
+            }
+            const params = {
+                deviceMemory: deviceMemory * 1024,
+                t: new Date().getTimezoneOffset(),
+                w: s.width,
+                h: s.height,
+                dpi: s.pixelRatio,
+                localIP: localIP
+            }
+            console.log(params);
+        })
+
+    }
+
+</script>
+
+</html>
